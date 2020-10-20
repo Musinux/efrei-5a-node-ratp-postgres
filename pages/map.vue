@@ -1,0 +1,286 @@
+<template>
+  <div id="map-container">
+    <input v-model="startStop" type="text" placeholder="Start Stop">
+    <input v-model="endStop" type="text" placeholder="End Stop">
+    <button @click="start">
+      Get the route
+    </button>
+    <span v-if="time">{{ time }} minutes de trajet</span>
+    <span v-if="timetaken">Calculé en {{ timetaken }} secondes</span>
+    <span v-if="lag">Lag de l'UI: {{ lag }} secondes</span>
+    <div id="map" />
+  </div>
+</template>
+
+<script>
+/* global OpenLayers */
+export default {
+  data: () => ({
+    startStop: 'MAIRIE DE LEVALLOIS',
+    endStop: "MAIRIE D'ALFORTVILLE",
+    listOfNodes: [],
+    map: null,
+    standardZoom: 10,
+    allLayers: [],
+    time: '',
+    timetaken: 0,
+    lag: 0,
+    standardStyle: {
+      strokeColor: '${color}', // eslint-disable-line
+      fontColor: 'red',
+      strokeOpacity: 1,
+      strokeWidth: 2,
+      fillOpacity: 0.2,
+      fillColor: '${color}' // eslint-disable-line
+    },
+    alreadyDefinedPaths: [],
+    dotsLayer: null,
+    linesLayer: null,
+    redLinesLayer: null
+  }),
+  mounted () {
+    this.map = new OpenLayers.Map('map', {
+      controls: [
+        new OpenLayers.Control.Navigation(),
+        new OpenLayers.Control.PanZoomBar(),
+        // new OpenLayers.Control.LayerSwitcher(),
+        new OpenLayers.Control.Attribution()
+      ],
+      maxExtent: new OpenLayers.Bounds(),
+      // maxResolution: 156543.0399,
+      numZoomLevels: 19,
+      units: 'm',
+      projection: new OpenLayers.Projection('EPSG:900913'),
+      displayProjection: this.epsg4326()
+    })
+
+    // Define the map layer
+    // Here we use a predefined layer that will be kept up to date with URL changes
+    this.map.addLayer(new OpenLayers.Layer.OSM.Mapnik())
+    this.map.zoomToMaxExtent()
+
+    this.linesLayer = new OpenLayers.Layer.Vector('', {
+      styleMap: new OpenLayers.StyleMap({
+        ...this.standardStyle,
+        strokeColor: 'green'
+      })
+    })
+    this.map.addLayer(this.linesLayer)
+
+    this.redLinesLayer = new OpenLayers.Layer.Vector('', {
+      styleMap: new OpenLayers.StyleMap({
+        ...this.standardStyle,
+        strokeColor: 'red'
+      })
+    })
+    this.map.addLayer(this.redLinesLayer)
+    this.dotsLayer = new OpenLayers.Layer.Vector('', {
+      styleMap: new OpenLayers.StyleMap(
+        {
+          ...this.standardStyle,
+          label: '${name}' // eslint-disable-line
+        }
+      )
+    })
+    this.map.addLayer(this.dotsLayer)
+
+    this.setCenter()
+  },
+  methods: {
+    async start () {
+      const now = Date.now()
+      /** @type {Array<Node>} */
+      const { values, id } = await fetch('/api/route?' +
+        `start=${encodeURIComponent(this.startStop)}` +
+        `&stop=${encodeURIComponent(this.endStop)}`)
+        .then(response => response.json())
+
+      if (!values) { return }
+
+      let started = true
+      this.updateNodes(values)
+        .then(() => (started = false))
+
+      const inter = setInterval(async () => {
+        try {
+          const { values, done, timetaken, goodPath } = await fetch(`/api/route/updates/${id}`)
+            .then(response => response.json())
+
+          if (done) {
+            clearInterval(inter)
+            console.log('goodPath', goodPath)
+            this.traceGoodPath(goodPath)
+            this.showTime(goodPath)
+            this.timetaken = timetaken
+            this.lag = ((Date.now() - now) - timetaken * 1000) / 1000
+          }
+
+          if (!done && started) { return }
+
+          started = true
+          await this.updateNodes(values)
+          started = false
+        } catch (err) {
+          clearInterval(inter)
+        }
+      }, 2000)
+    },
+
+    showTime (path) {
+      if (!path.length) { return }
+      console.log('path', path)
+      this.time = ((path[path.length - 1].distance - path[0].distance) / 60)
+    },
+
+    traceGoodPath (nodes) {
+      let prec = null
+      nodes.forEach((node) => {
+        console.log('trace path !')
+        const stop = node.stop
+        this.addCircle(stop.latitude, stop.longitude, 50, 'red', stop.stop_name)
+        if (prec) {
+          this.addLine([stop.longitude, stop.latitude], prec, 'red')
+        }
+        prec = [stop.longitude, stop.latitude]
+      })
+    },
+
+    compareCoords ([refStart, refStop], [start, stop]) {
+      return (refStart[0] === start[0] && refStart[1] === start[1] && refStop[0] === stop[0] && refStop[1] === stop[1]) ||
+        (refStart[0] === stop[0] && refStart[1] === stop[1] && refStop[0] === start[0] && refStop[1] === start[1])
+    },
+
+    timeout (ms) {
+      return new Promise(resolve => setTimeout(resolve, ms))
+    },
+
+    async updateNodes (nodes) {
+      const showCircles = false
+      let circles = []
+      let lines = []
+      for (const node of nodes) {
+        const stop = node.stop
+        const coordsStart = [stop.longitude, stop.latitude]
+        const existingNode = this.listOfNodes.find(n => n.stop_id === stop.id)
+        if (showCircles && !existingNode) {
+          let circle
+          if (node.start || node.end) {
+            circle = this.genCircle(stop.latitude, stop.longitude, 200, 'purple', '')
+          } else if (node.visited) {
+            circle = this.genCircle(stop.latitude, stop.longitude, 25, 'blue', '')
+          }
+          if (circle) {
+            this.circles.push(circle)
+            this.listOfNodes.push({
+              stop_id: stop.id,
+              node
+            })
+          }
+        }
+
+        if (circles.length >= 300) {
+          this.dotsLayer.addFeatures(circles)
+          circles = []
+          await this.timeout(100)
+        }
+
+        node.paths.forEach((path) => {
+          const endNode = nodes.find(n => n.stop.id === path.stop_id)
+          if (!endNode) { return }
+          const coordsEnd = [endNode.stop.longitude, endNode.stop.latitude]
+          const pathAlreadyExists = this.alreadyDefinedPaths
+            .find(_ => this.compareCoords(_, [coordsStart, coordsEnd]))
+
+          if (pathAlreadyExists) { return }
+
+          this.alreadyDefinedPaths.push([coordsStart, coordsEnd])
+          lines.push(this.genLine(coordsStart, coordsEnd))
+        })
+        if (lines.length >= 300) {
+          this.linesLayer.addFeatures(lines)
+          lines = []
+          await this.timeout(100)
+        }
+      }
+      if (circles.length) {
+        this.dotsLayer.addFeatures(circles)
+      }
+      if (lines.length) {
+        this.linesLayer.addFeatures(lines)
+      }
+    },
+
+    genLine (start, end, color = 'green') {
+      const startLonLat = new OpenLayers.LonLat(start[0], start[1]).transform(
+        this.epsg4326(),
+        this.map.getProjectionObject()
+      )
+      const startPoint = new OpenLayers.Geometry.Point(startLonLat.lon, startLonLat.lat)
+      const endLonLat = new OpenLayers.LonLat(end[0], end[1]).transform(
+        this.epsg4326(),
+        this.map.getProjectionObject()
+      )
+      const endPoint = new OpenLayers.Geometry.Point(endLonLat.lon, endLonLat.lat)
+      return new OpenLayers.Feature.Vector(new OpenLayers.Geometry.LineString([startPoint, endPoint]))
+    },
+
+    addLine (start, end, color = 'green') {
+      const line = this.genLine(start, end, color)
+      if (color === 'green') {
+        this.linesLayer.addFeatures([line])
+      } else {
+        this.redLinesLayer.addFeatures([line])
+      }
+    },
+
+    genCircle (lat, lng, radius, color, name) {
+      const lonLat = new OpenLayers.LonLat(lng, lat).transform(
+        this.epsg4326(),
+        this.map.getProjectionObject()
+      )
+
+      // this.map.setCenter(lonLat, standard_zoom);
+
+      const point = new OpenLayers.Geometry.Point(lonLat.lon, lonLat.lat)
+
+      const circle = OpenLayers.Geometry.Polygon.createRegularPolygon(point, radius, 40, 0)
+
+      return new OpenLayers.Feature.Vector(circle, { name, color })
+    },
+
+    addCircle (lat, lng, radius, color, name) {
+      this.dotsLayer.addFeatures([this.genCircle(lat, lng, radius, color, name)])
+    },
+
+    setCenter (lat, lng, zoom) {
+      const lonlat = new OpenLayers.LonLat(lng || 2.3522, lat || 48.8566)
+        .transform(this.epsg4326(), this.map.getProjectionObject())
+      this.map.setCenter(
+        lonlat,
+        zoom || 12
+      )
+    },
+
+    removeLayers () {
+      while (this.allLayers.length > 0) {
+        this.map.removeLayer(this.allLayers.pop())
+      }
+    },
+
+    epsg4326 () {
+      return new OpenLayers.Projection('EPSG:4326')
+    }
+  }
+}
+</script>
+<style>
+html, body {
+  height: 98%;
+  margin: 0;
+}
+
+#__nuxt, #__layout, #__layout div, #map-container, #map {
+  height: 100%;
+  margin: 0;
+}
+</style>
