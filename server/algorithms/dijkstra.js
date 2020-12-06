@@ -94,7 +94,7 @@ export class Node {
         toVisit.push(p.node)
       }
 
-      const newDistance = this.distance + p.cost * 1000
+      const newDistance = this.distance + p.cost
       if (p.node.distance > newDistance) {
         p.node.distance = newDistance
         p.node.visitedFrom = this
