@@ -77,5 +77,8 @@ export default class Trip {
     await postgresStore.client.query(`
       CREATE INDEX trip_route_id ON trip(route_id)
     `)
+    await postgresStore.client.query(`
+      CREATE INDEX trip_id_route_id ON trip(id, route_id)
+    `)
   }
 }

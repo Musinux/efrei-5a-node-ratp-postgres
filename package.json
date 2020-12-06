@@ -1,9 +1,10 @@
 {
-  "name": "efrei-5a-node-se-ratp-postgres",
+  "name": "ratp-postgres",
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "nuxt",
+    "dev-debug": "DEBUG=ratp* nuxt",
     "build": "nuxt build",
     "start": "nuxt start",
     "generate": "nuxt generate",
@@ -19,7 +20,9 @@
     "express-session": "^1.17.1",
     "moment": "^2.29.1",
     "morgan": "^1.10.0",
-    "nuxt": "^2.14.6",
+    "nuxt": "^2.14.7",
+    "ol": "^6.4.3",
+    "osm": "^1.0.0",
     "pg": "^8.4.1",
     "yargs": "^16.1.0"
   },

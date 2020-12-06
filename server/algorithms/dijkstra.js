@@ -1,4 +1,5 @@
 import Debug from 'debug'
+import { discoverNodes } from './get-route'
 const debug = Debug('ratp:algorithms:dijkstra')
 
 export class Path {
@@ -16,10 +17,9 @@ export class Node {
   /**
    * @param {String} name
    * @param {Object} stop
-   * @param {Function} discover
    * @param {Array<Path>} paths
    */
-  constructor (name, stop = {}, discover = () => {}, paths = []) {
+  constructor (name, stop = {}, paths = []) {
     /** @member {Boolean} */
     this.visited = false
     /** @member {String} */
@@ -30,13 +30,13 @@ export class Node {
     this.distance = Infinity
     /** @member {Node} visitedFrom */
     this.visitedFrom = null
-    /** @member {Function} discover */
-    this.discover = discover
     /** @member {Object} stop */
     this.stop = stop
-    /** @member {Boolean} */
+    /** @member {Boolean} start */
     this.start = false
-    /** @member {Boolean} */
+    /** @member {Boolean} hasTransfers */
+    this.hasTransfers = false
+    /** @member {Boolean} end */
     this.end = false
   }
 
@@ -94,9 +94,9 @@ export class Node {
         toVisit.push(p.node)
       }
 
-      const newCost = p.cost + this.distance
-      if (newCost < p.node.distance) {
-        p.node.distance = newCost
+      const newDistance = this.distance + p.cost * 1000
+      if (p.node.distance > newDistance) {
+        p.node.distance = newDistance
         p.node.visitedFrom = this
       }
     }
@@ -111,10 +111,11 @@ export class Dijkstra {
    * that we need to go through to have the path
    * @param {Node} startNode
    * @param {Node} endNode
+   * @param {Object<Number, Node>} nodes
    * @param {Number} initialDistance start date
    * @returns {Array<Node>}
    */
-  static async shortestPathFirst (startNode, endNode, initialDistance = 0) {
+  static async shortestPathFirst (startNode, endNode, nodes, initialDistance = 0) {
     debug('shortestPathFirst')
     if (startNode === endNode) { return [] }
 
@@ -125,7 +126,7 @@ export class Dijkstra {
     /** @type {Node[]} */
     const listOfNodes = [startNode]
 
-    await startNode.discover(startNode, startNode.distance)
+    await discoverNodes(nodes, [startNode])
 
     while (listOfNodes.length) {
       const curr = listOfNodes.shift()
@@ -142,26 +143,17 @@ export class Dijkstra {
       for (let i = 0; i < toVisit.length; i++) {
         if (!listOfNodes.includes(toVisit[i])) {
           const nextIndex = listOfNodes.findIndex(a => a.distance >= toVisit[i].distance)
-          debug('add in listOfNodes', toVisit[i].name)
           if (nextIndex !== -1) {
             listOfNodes.splice(nextIndex, 0, toVisit[i])
           } else {
             listOfNodes.push(toVisit[i])
           }
-          // listOfNodes.push(toVisit[i])
           toDiscover.push(toVisit[i])
         }
       }
 
-      await Promise.all(toDiscover.map(n => n.discover(n, n.distance)))
-
-      /* listOfNodes.sort((a, b) => {
-        if (a.distance > b.distance) {
-          return 1
-        } else {
-          return a.distance === b.distance ? 0 : -1
-        }
-      }) */
+      await discoverNodes(nodes, toDiscover)
+      // await Promise.all(toDiscover.map(n => n.discover(n, n.distance)))
     }
 
     // if we reached the end of the list without finding a path

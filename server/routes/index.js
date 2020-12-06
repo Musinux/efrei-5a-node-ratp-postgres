@@ -19,7 +19,12 @@ function genOutputNodes (nodes) {
 }
 
 function filterOutputNodes (nodes) {
-  return genOutputNodes(nodes).filter(n => n.visited)
+  return nodes
+    .filter(node => !node.sent && node.visited)
+    .map(node => {
+      node.sent = true
+      return node.export()
+    })
 }
 
 router.get('/route/updates/:id', function (req, res) {
@@ -51,7 +56,7 @@ router.get('/route', async function (req, res) {
     console.log('start', start)
     console.log('stop', stop)
 
-    const date = new Date() // new Date('2020-10-19T12:52:45.114Z')
+    const date = new Date('2020-10-19T12:52:45.114Z') // new Date()
 
     const route = getRoute(start, stop, date)
     const { value } = await route.next()

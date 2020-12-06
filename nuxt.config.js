@@ -11,14 +11,15 @@ export default {
       { hid: 'description', name: 'description', content: '' }
     ],
     script: [
-      {
+      /* {
         src: 'https://cdnjs.cloudflare.com/ajax/libs/openlayers/2.13.1/OpenLayers.js'
       },
       {
         src: 'https://www.openstreetmap.org/openlayers/OpenStreetMap.js'
-      }
+      } */
     ],
     link: [
+      // { rel: 'stylesheet', type: 'text/css', href: 'https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.4.3/css/ol.css' },
       { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' }
     ]
   },

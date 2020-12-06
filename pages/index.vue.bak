@@ -16,8 +16,8 @@
 /* global OpenLayers */
 export default {
   data: () => ({
-    startStop: 'MAIRIE DE LEVALLOIS',
-    endStop: "MAIRIE D'ALFORTVILLE",
+    startStop: 'Drancy',
+    endStop: 'mairie de garches',
     listOfNodes: [],
     map: null,
     standardZoom: 10,

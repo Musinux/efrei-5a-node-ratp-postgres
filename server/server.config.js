@@ -13,6 +13,7 @@ export default {
   postgres: {
     user: e('POSTGRES_USER'),
     host: e('POSTGRES_HOST'),
+    port: e('POSTGRES_PORT'),
     database: e('POSTGRES_DB'),
     password: e('POSTGRES_PASSWORD')
   }

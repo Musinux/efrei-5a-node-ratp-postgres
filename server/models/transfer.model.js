@@ -48,6 +48,17 @@ export default class Transfer {
     })
   }
 
+  static async getAllTransfers () {
+    const results = await postgresStore.client.query('SELECT * FROM transfer')
+    results.rows.forEach(t => {
+      t.from_stop_id = parseInt(t.from_stop_id),
+      t.to_stop_id = parseInt(t.to_stop_id),
+      t.transfer_type = t.transfer_type,
+      t.min_transfer_time = t.min_transfer_time
+    }) 
+    return results.rows
+  }
+
   static async generateTable () {
     // we don't use FOREIGN KEYS here because
     // some transfer refer to out-of-bounds stops (not in the ratp given set)

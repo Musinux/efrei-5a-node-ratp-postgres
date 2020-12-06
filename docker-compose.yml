@@ -12,16 +12,16 @@ services:
       - ./data/postgresql:/var/lib/postgressql/
       - /etc/passwd:/etc/passwd:ro
     ports:
-      - '5432:5432'
+      - '5433:5432'
     networks:
       - postgres
   pgadmin:
     image: dpage/pgadmin4
     environment:
-      PGADMIN_DEFAULT_EMAIL: 'cherel.louis@gmail.com'
+      PGADMIN_DEFAULT_EMAIL: 'admin@example.com'
       PGADMIN_DEFAULT_PASSWORD: 'secretpassword'
     ports:
-      - '80:80'
+      - '81:80'
     networks:
       - postgres
 networks:

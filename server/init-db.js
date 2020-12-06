@@ -61,6 +61,10 @@ async function run () {
   await postgresStore.init(config.postgres)
 
   await dropEverything()
+  await postgresStore.client.query('CREATE EXTENSION IF NOT EXISTS postgis')
+  await postgresStore.client.query('CREATE EXTENSION IF NOT EXISTS fuzzystrmatch')
+  await postgresStore.client.query('CREATE EXTENSION IF NOT EXISTS postgis_tiger_geocoder')
+  await postgresStore.client.query('CREATE EXTENSION IF NOT EXISTS postgis_topology')
   const models = [
     Agency,
     Calendar,
@@ -74,13 +78,28 @@ async function run () {
 
   for (const model of models) {
     await model.generateTable()
+    if (model.createViews) {
+      await model.createViews()
+    }
   }
 
   for (const [file, handler, batchSize = 10000] of files) {
     await importCSV(path.join(dir, file), handler, batchSize)
   }
 
-  await StopTime.addForeignKeys()
+  debug('adding foreign keys...')
+  for (const model of models) {
+    if (model.addForeignKeys) {
+      await model.addForeignKeys()
+    }
+  }
+
+  for (const model of models) {
+    if (model.createViews) {
+      debug('creating view (can take ~3 minutes)')
+      await model.createViews()
+    }
+  }
 
   debug('done.')
   postgresStore.close()

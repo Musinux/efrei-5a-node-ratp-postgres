@@ -1,6 +1,7 @@
 import Debug from 'debug'
 import StopTime from '../models/stop-time.model.js'
 import Stop from '../models/stop.model.js'
+import Transfer from '../models/transfer.model.js'
 import { Dijkstra, Node } from './dijkstra.js'
 const debug = Debug('ratp:algorithms:get-route')
 
@@ -16,6 +17,8 @@ export default async function * getRoute (startStopName, endStopName, date) {
   // like "VERDUN - République"
   const startStops = await Stop.getStops(startStopName)
   const endStops = await Stop.getStops(endStopName)
+  const transfers = await Transfer.getAllTransfers()
+
   if (!startStops.length || !endStops.length) {
     debug('no stops start:', startStops.length, 'end:', endStops.length)
     return []
@@ -28,13 +31,19 @@ export default async function * getRoute (startStopName, endStopName, date) {
 
   const nodesByStopId = {}
 
-  const nodes = between.map(stop =>
-    new Node(stop.stop_name, stop, (node, time) => discover(node, nodesByStopId, time))
-  )
+  const nodes = between.map(stop => new Node(stop.stop_name, stop))
 
   nodes.forEach(n => (nodesByStopId[n.stop.id] = n))
 
   yield nodes // we give a first result which is the list of points
+
+  transfers.forEach(t => {
+    const from = nodesByStopId[t.from_stop_id]
+    const to = nodesByStopId[t.to_stop_id]
+    if (from && to) {
+      from.addNonOrientedPath(to, t.min_transfer_time)
+    }
+  })
 
   const startNodes = startStops
     .map(ss => nodesByStopId[ss.id])
@@ -54,7 +63,7 @@ export default async function * getRoute (startStopName, endStopName, date) {
   const endNode = new Node('Stop')
   createEndNodeRoutes(endNode, endNodes)
 
-  const out = await Dijkstra.shortestPathFirst(startNode, endNode, date.getTime())
+  const out = await Dijkstra.shortestPathFirst(startNode, endNode, nodesByStopId, date.getTime())
 
   if (out.length) {
     out.shift() // remove the first element, only here to simplify the algorithm
@@ -72,57 +81,23 @@ function createEndNodeRoutes (node, endNodes) {
 }
 
 /**
- * Each time we visit a node, it helps us determine the next possible paths
- * So we can add new paths with the associated costs
- * Two possible ways:
- *  * transfers, with have cost in minutes
- *  * nextStationCost, which have cost in milliseconds
- * @param {Node} node
- * @param {Object.<number, Node>} nodes
- * @param {Stop} stop
- * @param {String} time
+ * @param {Object<Number, Node>} allNodes 
+ * @param {Node[]} newNodes
  */
-async function discover (node, nodes, time) {
-  debug('discover')
-  const stop = node.stop
-  const stoptimes = await StopTime.getNextStopTimes(stop, new Date(time))
-  node.stoptimes = stoptimes
+export async function discoverNodes (allNodes, newNodes) {
+  const opts = newNodes.map(n => ({
+    stop: n.stop,
+    date: n.distance
+  }))
 
-  for (const time of stoptimes) {
-    if (time.next_station && time.next_station.stop_id && time.next_station.cost) {
-      const nextStationNode = nodes[time.next_station.stop_id]
-      if (nextStationNode) {
-        /*
-         // disabled in the sql query
-        const moreinfo = {
-          route_short_name: time.route_short_name,
-          route_long_name: time.route_long_name
-        }
-        */
-        debug('next station', time.next_station.stop_id)
+  const nexts = await StopTime.getNextStopTimes(opts)
 
-        node.addOrientedPath(nextStationNode, time.next_station.cost)
+  nexts.forEach(next => {
+    if (next.next_station && next.next_station.stop_id) {
+      const node = allNodes[next.stop_id]
+      if (allNodes[next.next_station.stop_id]) {
+        node.addOrientedPath(allNodes[next.next_station.stop_id], next.next_station.cost)
       }
     }
-
-    for (const transfer of time.transfers) {
-      // here we try to find the nodes that are linked to our current stop
-      // we are checking each node where the stop_id is equal to from_stop_id or
-      // to_stop_id
-      let transferNode
-
-      if (transfer.from_stop_id === time.stop_id) {
-        transferNode = nodes[transfer.to_stop_id]
-      } else if (transfer.to_stop_id === time.stop_id) {
-        transferNode = nodes[transfer.from_stop_id]
-      }
-
-      if (!transferNode) {
-        continue
-      }
-      debug('transfer', transferNode.name)
-      // transfers are not oriented because it's by feet
-      node.addNonOrientedPath(transferNode, transfer.min_transfer_time)
-    }
-  }
+  })
 }
